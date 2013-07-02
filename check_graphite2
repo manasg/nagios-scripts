@@ -16,6 +16,8 @@ EXIT_WARNING = 1
 EXIT_CRITICAL = 2
 EXIT_UNKNOWN = 3
 
+INFORMATIONAL_TIMESHIFT = '-1w'
+
 @@options = {}
 
 optparse = OptionParser.new do |opts|
@@ -68,19 +70,22 @@ end
 
 optparse.parse!
 
-if (@@options[:url].nil? || @@options[:metric].nil? || @@options[:warning].nil? || @@options[:critical].nil? || @@options[:timeShift].nil? )
+if (@@options[:url].nil? || @@options[:metric].nil? || @@options[:timeShift].nil? || @@options[:shortname].nil? )
   puts optparse
   exit 2
 end
 
-def url(timeShift=false)
+def url(timeShift=false, custom_timeShift=false)
   base_url = @@options[:url]
   metric = @@options[:metric]
   duration = @@options[:duration].to_s
+
   if timeShift
     metric = "timeShift(#{metric},'#{@@options[:timeShift]}')"  
+  elsif custom_timeShift
+    metric = "timeShift(#{metric},'#{INFORMATIONAL_TIMESHIFT}')" 
   end
-
+  
   base_url + "/render/?target=" + metric + "&format=json&from=-" + duration + "mins"
 end
 
@@ -113,35 +118,28 @@ end
 
 data = get_data(url())
 timeshifted_data = get_data(url(timeShift=true))
-
-pp data
-pp timeshifted_data
+custom_timeshifted_data = get_data(url(false, custom_timeShift=true))
+#pp timeshifted_data
 
 total = data["total"].to_i
-perfdata = ""
-perfdata = "| #{@@options[:shortname]}=#{total}" if !@@options[:shortname].nil?
+timeshifted = timeshifted_data["total"].to_i
+custom_total = custom_timeshifted_data["total"].to_i
 
-if (@@options[:critical].to_i > @@options[:warning].to_i)
-  if (total >= @@options[:critical].to_i)
-    puts "CRITICAL metric count: #{total} #{perfdata}"
-    exit EXIT_CRITICAL
-  elsif (total >= @@options[:warning].to_i)
-    puts "WARNING metric count: #{total} #{perfdata}"
-    exit EXIT_WARNING
-  else
-    puts "OK metric count: #{total} #{perfdata}"
-    exit EXIT_OK
-  end
-else
-  if (total <= @@options[:critical].to_i)
-    puts "CRITICAL metric count: #{total} #{perfdata}"
-    exit EXIT_CRITICAL
-  elsif (total <= @@options[:warning].to_i)
-    puts "WARNING metric count: #{total} #{perfdata}"
-    exit EXIT_WARNING
-  else
-    puts "OK metric count: #{total} #{perfdata}"
-    exit EXIT_OK
-  end
+ratio = total.to_f/timeshifted
+
+perfdata = ""
+if !@@options[:shortname].nil?
+  perfdata = "| #{@@options[:shortname]} in_last_#{@@options[:duration]}_mins, " + 
+    "count:#{total}, #{@@options[:timeShift]}_ago_count:#{timeshifted}, " +
+    "ratio:#{ratio}, info_#{INFORMATIONAL_TIMESHIFT}_ago:#{custom_total}"
 end
+
+if (ratio < @@options[:warning_ratio].to_f)
+    puts "WARNING #{perfdata}"
+    exit EXIT_WARNING
+else
+    puts "OK #{perfdata}"
+    exit EXIT_OK
+end
+
 
